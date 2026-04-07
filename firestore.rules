@@ -1,0 +1,31 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /readings/{document=**} {
+      // Anyone can read all readings (public dashboard)
+      allow read: if true;
+
+      // Write access: ESP32 posts directly via Firestore REST API with API key.
+      // The API key restricts to this project. Document must have exactly 6 fields
+      // with correct types (device_id, temperature, pressure, unit_temp, unit_pressure, timestamp).
+      allow create: if request.resource.data.size() == 6
+                    && request.resource.data.device_id is string
+                    && request.resource.data.temperature is number
+                    && request.resource.data.pressure is number
+                    && request.resource.data.unit_temp is string
+                    && request.resource.data.unit_pressure is string
+                    && request.resource.data.timestamp is timestamp;
+
+      // No updates or deletes from clients (only Cloud Functions via Admin SDK)
+      allow update, delete: if false;
+    }
+
+    match /readings_hourly/{document=**} {
+      // Anyone can read aggregated data (public dashboard)
+      allow read: if true;
+
+      // Only Cloud Functions (Admin SDK) can write — no client-side writes
+      allow write: if false;
+    }
+  }
+}
