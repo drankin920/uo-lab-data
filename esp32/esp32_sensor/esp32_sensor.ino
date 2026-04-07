@@ -1,10 +1,9 @@
 /**
  * UO Lab Pulse — ESP32 Sensor Firmware
  *
- * Posts temperature and pressure readings to a local Raspberry Pi
- * server every 5 seconds via HTTP. The Pi stores data in SQLite
- * and forwards each reading to Firebase Firestore for real-time
- * dashboard updates.
+ * Posts temperature and pressure readings directly to Firebase
+ * Firestore every 30 seconds via the REST API. The React dashboard
+ * at https://uo-lab-pulse.web.app listens in real-time via onSnapshot.
  *
  * Hardware:
  *   - MAX6675 thermocouple (CLK=32, CS=33, DO=25)
@@ -50,6 +49,10 @@ const char* EAP_PASSWORD   = "";       // <-- enter your password here
 // Raspberry Pi server URL (LAN address — ESP32 and Pi on same network)
 // Change this to your Pi's IP address after setting it up
 const char* PI_SERVER_URL = "http://192.168.1.100:3001/api/readings";
+
+// Firestore REST API endpoint
+const char* FIRESTORE_PROJECT_ID = "uo-lab-pulse";
+const char* FIREBASE_API_KEY = "AIzaSyBw6kSiq98yhWmCznbG4pzx9k6cl62Rklc";
 
 // Device identity
 const char* DEVICE_ID = "esp32-lab-01";
@@ -223,27 +226,26 @@ void connectWiFi() {
   }
 }
 
-// ─── POST TO PI SERVER ──────────────────────────────────────────
+// ─── POST TO FIRESTORE ──────────────────────────────────────────
 
-bool postToServer(float temperature, float pressure) {
+bool postToFirestore(float temperature, float pressure) {
   if (WiFi.status() != WL_CONNECTED) {
     Serial.println("WiFi not connected, skipping POST");
     return false;
   }
 
   HTTPClient http;
-  http.begin(PI_SERVER_URL);
+
+  // Firestore REST API: create a new document in the "readings" collection
+  String url = "https://firestore.googleapis.com/v1/projects/";
+  url += FIRESTORE_PROJECT_ID;
+  url += "/databases/(default)/documents/readings?key=";
+  url += FIREBASE_API_KEY;
+
+  http.begin(url);
   http.addHeader("Content-Type", "application/json");
 
-  // Build plain JSON payload (Pi server expects simple fields)
-  JsonDocument doc;
-  doc["device_id"] = DEVICE_ID;
-  doc["temperature"] = temperature;
-  doc["pressure"] = pressure;
-  doc["unit_temp"] = "Celsius";
-  doc["unit_pressure"] = "mmHg";
-
-  // Include ISO 8601 timestamp from NTP-synced clock
+  // Build ISO 8601 timestamp from NTP-synced clock
   struct tm timeinfo;
   char timeBuf[30];
   if (getLocalTime(&timeinfo)) {
@@ -251,12 +253,20 @@ bool postToServer(float temperature, float pressure) {
   } else {
     strcpy(timeBuf, "1970-01-01T00:00:00Z");
   }
-  doc["timestamp"] = timeBuf;
+
+  // Build Firestore REST API payload (requires typed field wrappers)
+  JsonDocument doc;
+  doc["fields"]["device_id"]["stringValue"] = DEVICE_ID;
+  doc["fields"]["temperature"]["doubleValue"] = temperature;
+  doc["fields"]["pressure"]["doubleValue"] = pressure;
+  doc["fields"]["unit_temp"]["stringValue"] = "Celsius";
+  doc["fields"]["unit_pressure"]["stringValue"] = "mmHg";
+  doc["fields"]["timestamp"]["timestampValue"] = timeBuf;
 
   String payload;
   serializeJson(doc, payload);
 
-  Serial.print("POST to Pi server... ");
+  Serial.print("POST to Firestore... ");
   int httpCode = http.POST(payload);
 
   bool success = (httpCode == 200 || httpCode == 201);
@@ -354,8 +364,8 @@ void loop() {
       // Update the e-Paper display with current values
       updateDisplay(temperature, pressure, WiFi.status() == WL_CONNECTED);
 
-      // Post to Pi server (which stores in SQLite + forwards to Firestore)
-      postToServer(temperature, pressure);
+      // Post directly to Firestore REST API
+      postToFirestore(temperature, pressure);
     } else {
       Serial.println("Sensor read failed, skipping this cycle");
     }
