@@ -4,11 +4,12 @@ import {
   query,
   orderBy,
   limit,
+  where,
+  getDocs,
   onSnapshot,
+  Timestamp,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
-
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
 
 export interface RawReading {
   id: string;
@@ -85,7 +86,7 @@ export function useRealtimeReadings(): UseRealtimeReadingsReturn {
     setTimeRange("custom");
   }, []);
 
-  // Real-time listener for the latest reading (Firestore onSnapshot — stays real-time)
+  // Real-time listener for the latest reading (Firestore onSnapshot)
   useEffect(() => {
     const q = query(
       collection(db, "readings"),
@@ -121,94 +122,93 @@ export function useRealtimeReadings(): UseRealtimeReadingsReturn {
     return () => unsubscribe();
   }, []);
 
-  // Fetch historical data from Pi server API
+  // Fetch historical data from Firestore
   const fetchHistoricalData = useCallback(async () => {
     try {
-      let start: string;
-      let end: string;
+      let start: Date;
+      let end: Date;
       let mode: "raw" | "hourly";
 
       if (timeRange === "custom") {
         if (!customStart || !customEnd) return;
-        start = customStart.toISOString();
-        end = customEnd.toISOString();
+        start = customStart;
+        end = customEnd;
 
         // Use hourly mode if custom range spans more than 3 days
         const spanMs = customEnd.getTime() - customStart.getTime();
         mode = spanMs > 3 * 24 * 60 * 60 * 1000 ? "hourly" : "raw";
       } else {
         const dates = getTimeRangeDates(timeRange);
-        start = dates.start.toISOString();
-        end = dates.end.toISOString();
+        start = dates.start;
+        end = dates.end;
 
         // 24h uses raw data; 7d and 30d use hourly aggregates
         mode = timeRange === "24h" ? "raw" : "hourly";
       }
 
-      const url = `${API_URL}/api/readings?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&mode=${mode}`;
-      const response = await fetch(url);
-
-      if (!response.ok) {
-        throw new Error(`API error: ${response.status} ${response.statusText}`);
-      }
-
-      const json = await response.json();
+      const startTs = Timestamp.fromDate(start);
+      const endTs = Timestamp.fromDate(end);
 
       if (mode === "hourly") {
-        // Map Pi API hourly aggregates to HourlyReading[]
-        const readings: HourlyReading[] = (json.data || []).map(
-          (row: {
-            hour: string;
-            temp_avg: number;
-            temp_min: number;
-            temp_max: number;
-            pressure_avg: number;
-            pressure_min: number;
-            pressure_max: number;
-            reading_count: number;
-          }, index: number) => ({
-            id: `hourly-${index}`,
-            device_id: "esp32-lab-01",
-            temp_avg: row.temp_avg,
-            temp_min: row.temp_min,
-            temp_max: row.temp_max,
-            pressure_avg: row.pressure_avg,
-            pressure_min: row.pressure_min,
-            pressure_max: row.pressure_max,
-            reading_count: row.reading_count,
-            hour_start: new Date(row.hour),
-            hour_end: new Date(new Date(row.hour).getTime() + 60 * 60 * 1000),
-          })
+        // Query readings_hourly collection
+        const q = query(
+          collection(db, "readings_hourly"),
+          where("hour_start", ">=", startTs),
+          where("hour_start", "<", endTs),
+          orderBy("hour_start", "asc")
         );
+        const snapshot = await getDocs(q);
+
+        const readings: HourlyReading[] = snapshot.docs.map((doc) => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            device_id: data.device_id || "esp32-lab-01",
+            temp_avg: data.temp_avg,
+            temp_min: data.temp_min,
+            temp_max: data.temp_max,
+            pressure_avg: data.pressure_avg,
+            pressure_min: data.pressure_min,
+            pressure_max: data.pressure_max,
+            reading_count: data.reading_count,
+            hour_start: data.hour_start?.toDate() || new Date(),
+            hour_end: data.hour_end?.toDate() || new Date(),
+          };
+        });
+
         setHourlyReadings(readings);
         setHistoricalReadings([]);
       } else {
-        // Map Pi API raw readings to RawReading[]
-        const readings: RawReading[] = (json.data || []).map(
-          (row: {
-            id: number;
-            device_id: string;
-            temperature: number;
-            pressure: number;
-            unit_temp: string;
-            unit_pressure: string;
-            timestamp: string;
-          }) => ({
-            id: String(row.id),
-            device_id: row.device_id,
-            temperature: row.temperature,
-            pressure: row.pressure,
-            unit_temp: row.unit_temp || "Celsius",
-            unit_pressure: row.unit_pressure || "mmHg",
-            timestamp: new Date(row.timestamp),
-          })
+        // Query raw readings collection
+        const q = query(
+          collection(db, "readings"),
+          where("timestamp", ">=", startTs),
+          where("timestamp", "<", endTs),
+          orderBy("timestamp", "asc")
         );
+        const snapshot = await getDocs(q);
+
+        const readings: RawReading[] = snapshot.docs.map((doc) => {
+          const data = doc.data();
+          return {
+            id: doc.id,
+            device_id: data.device_id || "esp32-lab-01",
+            temperature: data.temperature,
+            pressure: data.pressure,
+            unit_temp: data.unit_temp || "Celsius",
+            unit_pressure: data.unit_pressure || "mmHg",
+            timestamp: data.timestamp?.toDate() || new Date(),
+          };
+        });
+
         setHistoricalReadings(readings);
         setHourlyReadings([]);
       }
     } catch (err) {
-      console.error("Error fetching historical data from Pi API:", err);
-      setError(err instanceof Error ? err.message : "Failed to fetch historical data");
+      console.error("Error fetching historical data from Firestore:", err);
+      setError(
+        err instanceof Error ? err.message : "Failed to fetch historical data"
+      );
     }
   }, [timeRange, customStart, customEnd]);
 
@@ -217,7 +217,6 @@ export function useRealtimeReadings(): UseRealtimeReadingsReturn {
   }, [fetchHistoricalData]);
 
   // Auto-refresh historical data periodically on 24h view (every 30 seconds)
-  // so the chart stays relatively current without relying on Firestore onSnapshot
   useEffect(() => {
     if (timeRange !== "24h") return;
 

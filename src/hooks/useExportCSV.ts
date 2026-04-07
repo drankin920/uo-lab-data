@@ -1,4 +1,13 @@
 import { useCallback, useState } from "react";
+import {
+  collection,
+  query,
+  where,
+  orderBy,
+  getDocs,
+  Timestamp,
+} from "firebase/firestore";
+import { db } from "@/lib/firebase";
 import Papa from "papaparse";
 import {
   convertPressure,
@@ -6,8 +15,6 @@ import {
   type PressureUnit,
   type TemperatureUnit,
 } from "@/lib/units";
-
-const API_URL = import.meta.env.VITE_API_URL || "http://localhost:3001";
 
 interface ExportRow {
   timestamp: string;
@@ -44,68 +51,77 @@ export function useExportCSV(): UseExportCSVReturn {
       setError(null);
 
       try {
-        const start = startDate.toISOString();
-        const end = endDate.toISOString();
+        const startTs = Timestamp.fromDate(startDate);
+        const endTs = Timestamp.fromDate(endDate);
 
-        // Fetch raw readings from Pi server API
-        const url = `${API_URL}/api/readings?start=${encodeURIComponent(start)}&end=${encodeURIComponent(end)}&mode=raw`;
-        const response = await fetch(url);
+        // Determine whether to use raw readings or hourly aggregates.
+        // Raw readings are only available for the last 48 hours (pruned after that).
+        // For ranges older than 48h or spanning more than 48h, use hourly data.
+        const now = new Date();
+        const cutoff48h = new Date(now.getTime() - 48 * 60 * 60 * 1000);
+        const useHourly = startDate < cutoff48h;
 
-        if (!response.ok) {
-          throw new Error(`API error: ${response.status} ${response.statusText}`);
+        if (useHourly) {
+          // Query hourly aggregates from readings_hourly
+          const q = query(
+            collection(db, "readings_hourly"),
+            where("hour_start", ">=", startTs),
+            where("hour_start", "<", endTs),
+            orderBy("hour_start", "asc")
+          );
+          const snapshot = await getDocs(q);
+
+          if (snapshot.empty) {
+            setError("No data available for the selected date range");
+            setIsExporting(false);
+            return;
+          }
+
+          const rows: ExportRow[] = snapshot.docs.map((doc) => {
+            const data = doc.data();
+            const ts = (data.hour_start as Timestamp).toDate().toISOString();
+            return {
+              timestamp: ts,
+              temperature: convertTemperature(data.temp_avg, temperatureUnit),
+              pressure: convertPressure(data.pressure_avg, pressureUnit),
+              unit_temp: temperatureUnit,
+              unit_pressure: pressureUnit,
+              device_id: data.device_id || "esp32-lab-01",
+            };
+          });
+
+          generateAndDownloadCSV(rows, startDate, endDate);
+        } else {
+          // Query raw readings
+          const q = query(
+            collection(db, "readings"),
+            where("timestamp", ">=", startTs),
+            where("timestamp", "<", endTs),
+            orderBy("timestamp", "asc")
+          );
+          const snapshot = await getDocs(q);
+
+          if (snapshot.empty) {
+            setError("No data available for the selected date range");
+            setIsExporting(false);
+            return;
+          }
+
+          const rows: ExportRow[] = snapshot.docs.map((doc) => {
+            const data = doc.data();
+            const ts = (data.timestamp as Timestamp).toDate().toISOString();
+            return {
+              timestamp: ts,
+              temperature: convertTemperature(data.temperature, temperatureUnit),
+              pressure: convertPressure(data.pressure, pressureUnit),
+              unit_temp: temperatureUnit,
+              unit_pressure: pressureUnit,
+              device_id: data.device_id || "esp32-lab-01",
+            };
+          });
+
+          generateAndDownloadCSV(rows, startDate, endDate);
         }
-
-        const json = await response.json();
-        const data = json.data || [];
-
-        if (data.length === 0) {
-          setError("No data available for the selected date range");
-          setIsExporting(false);
-          return;
-        }
-
-        // Convert units client-side (supports all dashboard units)
-        const rows: ExportRow[] = data.map(
-          (row: {
-            timestamp: string;
-            temperature: number;
-            pressure: number;
-            device_id: string;
-          }) => ({
-            timestamp: row.timestamp,
-            temperature: convertTemperature(row.temperature, temperatureUnit),
-            pressure: convertPressure(row.pressure, pressureUnit),
-            unit_temp: temperatureUnit,
-            unit_pressure: pressureUnit,
-            device_id: row.device_id || "esp32-lab-01",
-          })
-        );
-
-        const csv = Papa.unparse(rows, {
-          header: true,
-          columns: [
-            "timestamp",
-            "temperature",
-            "pressure",
-            "unit_temp",
-            "unit_pressure",
-            "device_id",
-          ],
-        });
-
-        // Trigger browser download — prepend UTF-8 BOM so Excel reads °/special chars correctly
-        const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
-        const blobUrl = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        const pad = (n: number) => String(n).padStart(2, "0");
-        const startStr = `${startDate.toISOString().split("T")[0]}_${pad(startDate.getHours())}${pad(startDate.getMinutes())}`;
-        const endStr = `${endDate.toISOString().split("T")[0]}_${pad(endDate.getHours())}${pad(endDate.getMinutes())}`;
-        link.href = blobUrl;
-        link.download = `readings_${startStr}_to_${endStr}.csv`;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(blobUrl);
       } catch (err) {
         console.error("CSV export error:", err);
         setError(err instanceof Error ? err.message : "Export failed");
@@ -117,4 +133,38 @@ export function useExportCSV(): UseExportCSVReturn {
   );
 
   return { exportCSV, isExporting, error };
+}
+
+function generateAndDownloadCSV(
+  rows: ExportRow[],
+  startDate: Date,
+  endDate: Date,
+): void {
+  const csv = Papa.unparse(rows, {
+    header: true,
+    columns: [
+      "timestamp",
+      "temperature",
+      "pressure",
+      "unit_temp",
+      "unit_pressure",
+      "device_id",
+    ],
+  });
+
+  // Trigger browser download — prepend UTF-8 BOM so Excel reads special chars correctly
+  const blob = new Blob(["\uFEFF" + csv], {
+    type: "text/csv;charset=utf-8;",
+  });
+  const blobUrl = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  const pad = (n: number) => String(n).padStart(2, "0");
+  const startStr = `${startDate.toISOString().split("T")[0]}_${pad(startDate.getHours())}${pad(startDate.getMinutes())}`;
+  const endStr = `${endDate.toISOString().split("T")[0]}_${pad(endDate.getHours())}${pad(endDate.getMinutes())}`;
+  link.href = blobUrl;
+  link.download = `readings_${startStr}_to_${endStr}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(blobUrl);
 }

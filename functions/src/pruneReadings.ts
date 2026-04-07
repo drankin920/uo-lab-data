@@ -5,8 +5,10 @@ const db = admin.firestore();
 
 /**
  * Runs daily at 2:00 AM UTC.
- * Deletes raw `readings` older than 48 hours and
- * `readings_hourly` aggregates older than 31 days.
+ * Deletes raw `readings` older than 48 hours.
+ *
+ * Hourly aggregates in `readings_hourly` are kept indefinitely —
+ * they are tiny (~25 MB/year) and needed for historical chart views.
  *
  * Why 48 hours for raw data (not 24)?
  * - The 24h chart needs a full 24 hours of raw data at any time.
@@ -25,12 +27,6 @@ export const pruneOldReadings = onSchedule(
     // Delete raw readings older than 48 hours
     const rawCutoff = new Date(now.getTime() - 48 * 60 * 60 * 1000);
     await deleteOldDocuments("readings", rawCutoff, "timestamp");
-
-    // Delete hourly aggregates older than 31 days
-    const hourlyCutoff = new Date(
-      now.getTime() - 31 * 24 * 60 * 60 * 1000
-    );
-    await deleteOldDocuments("readings_hourly", hourlyCutoff, "hour_start");
   }
 );
 
