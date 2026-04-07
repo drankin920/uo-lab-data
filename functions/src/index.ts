@@ -5,3 +5,4 @@ admin.initializeApp();
 export { aggregateHourlyReadings } from "./aggregateReadings";
 export { pruneOldReadings } from "./pruneReadings";
 export { exportDailyReadings } from "./exportReadings";
+export { fetchArchiveReadings } from "./fetchArchive";

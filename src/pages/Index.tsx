@@ -105,12 +105,18 @@ const Index = () => {
   // Custom chart date range state
   const [chartStartDate, setChartStartDate] = useState<Date | undefined>(undefined);
   const [chartEndDate, setChartEndDate] = useState<Date | undefined>(undefined);
+  const [chartStartTime, setChartStartTime] = useState("00:00");
+  const [chartEndTime, setChartEndTime] = useState("23:59");
 
   const handleApplyCustomRange = () => {
     if (!chartStartDate || !chartEndDate) return;
-    const endOfDay = new Date(chartEndDate);
-    endOfDay.setHours(23, 59, 59, 999);
-    setCustomRange(chartStartDate, endOfDay);
+    const [startH, startM] = parseTime(chartStartTime);
+    const start = new Date(chartStartDate);
+    start.setHours(startH, startM, 0, 0);
+    const [endH, endM] = parseTime(chartEndTime);
+    const end = new Date(chartEndDate);
+    end.setHours(endH, endM, 59, 999);
+    setCustomRange(start, end);
   };
 
   // Y-axis override state
@@ -551,60 +557,88 @@ const Index = () => {
                     <label className="text-xs font-medium text-muted-foreground">
                       Start
                     </label>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="w-[150px] justify-start text-left font-normal text-xs"
-                        >
-                          <CalendarIcon className="h-3.5 w-3.5 mr-1.5" />
-                          {chartStartDate
-                            ? format(chartStartDate, "MMM d, yyyy")
-                            : "Start date"}
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0" align="start">
-                        <Calendar
-                          mode="single"
-                          selected={chartStartDate}
-                          onSelect={setChartStartDate}
-                          disabled={(date) => date > new Date()}
-                          initialFocus
+                    <div className="flex items-center gap-1.5">
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="w-[150px] justify-start text-left font-normal text-xs"
+                          >
+                            <CalendarIcon className="h-3.5 w-3.5 mr-1.5" />
+                            {chartStartDate
+                              ? format(chartStartDate, "MMM d, yyyy")
+                              : "Start date"}
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0" align="start">
+                          <Calendar
+                            mode="single"
+                            selected={chartStartDate}
+                            onSelect={setChartStartDate}
+                            disabled={(date) => date > new Date()}
+                            initialFocus
+                          />
+                        </PopoverContent>
+                      </Popover>
+                      <div className="relative">
+                        <Clock className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          placeholder="00:00"
+                          value={chartStartTime}
+                          onChange={(e) => setChartStartTime(e.target.value)}
+                          onBlur={(e) => setChartStartTime(normalizeTime(e.target.value))}
+                          className="h-9 w-[80px] rounded-md border border-input bg-background pl-7 pr-2 text-xs tabular-nums ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                         />
-                      </PopoverContent>
-                    </Popover>
+                      </div>
+                    </div>
                   </div>
                   <div className="space-y-1">
                     <label className="text-xs font-medium text-muted-foreground">
                       End
                     </label>
-                    <Popover>
-                      <PopoverTrigger asChild>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          className="w-[150px] justify-start text-left font-normal text-xs"
-                        >
-                          <CalendarIcon className="h-3.5 w-3.5 mr-1.5" />
-                          {chartEndDate
-                            ? format(chartEndDate, "MMM d, yyyy")
-                            : "End date"}
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-auto p-0" align="start">
-                        <Calendar
-                          mode="single"
-                          selected={chartEndDate}
-                          onSelect={setChartEndDate}
-                          disabled={(date) =>
-                            date > new Date() ||
-                            (chartStartDate ? date < chartStartDate : false)
-                          }
-                          initialFocus
+                    <div className="flex items-center gap-1.5">
+                      <Popover>
+                        <PopoverTrigger asChild>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="w-[150px] justify-start text-left font-normal text-xs"
+                          >
+                            <CalendarIcon className="h-3.5 w-3.5 mr-1.5" />
+                            {chartEndDate
+                              ? format(chartEndDate, "MMM d, yyyy")
+                              : "End date"}
+                          </Button>
+                        </PopoverTrigger>
+                        <PopoverContent className="w-auto p-0" align="start">
+                          <Calendar
+                            mode="single"
+                            selected={chartEndDate}
+                            onSelect={setChartEndDate}
+                            disabled={(date) =>
+                              date > new Date() ||
+                              (chartStartDate ? date < chartStartDate : false)
+                            }
+                            initialFocus
+                          />
+                        </PopoverContent>
+                      </Popover>
+                      <div className="relative">
+                        <Clock className="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground pointer-events-none" />
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          placeholder="23:59"
+                          value={chartEndTime}
+                          onChange={(e) => setChartEndTime(e.target.value)}
+                          onBlur={(e) => setChartEndTime(normalizeTime(e.target.value))}
+                          className="h-9 w-[80px] rounded-md border border-input bg-background pl-7 pr-2 text-xs tabular-nums ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
                         />
-                      </PopoverContent>
-                    </Popover>
+                      </div>
+                    </div>
                   </div>
                   <Button
                     size="sm"
@@ -616,8 +650,8 @@ const Index = () => {
                   </Button>
                   {customStart && customEnd && (
                     <span className="text-xs text-muted-foreground ml-auto self-center">
-                      Showing {format(customStart, "MMM d, yyyy")} &ndash;{" "}
-                      {format(customEnd, "MMM d, yyyy")}
+                      Showing {format(customStart, "MMM d, yyyy HH:mm")} &ndash;{" "}
+                      {format(customEnd, "MMM d, yyyy HH:mm")}
                     </span>
                   )}
                 </div>

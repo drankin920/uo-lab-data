@@ -44,8 +44,8 @@
 
 // eduroam WPA2-Enterprise credentials
 const char* WIFI_SSID      = "eduroam";
-const char* EAP_IDENTITY   = "YOUR_EMAIL@university.edu";    // <-- your university email
-const char* EAP_PASSWORD   = "YOUR_PASSWORD";       // <-- enter your password here
+const char* EAP_IDENTITY   = "";    // <-- your university email
+const char* EAP_PASSWORD   = "";       // <-- enter your password here
 
 // Raspberry Pi server URL (LAN address — ESP32 and Pi on same network)
 // Change this to your Pi's IP address after setting it up
@@ -54,8 +54,8 @@ const char* PI_SERVER_URL = "http://192.168.1.100:3001/api/readings";
 // Device identity
 const char* DEVICE_ID = "esp32-lab-01";
 
-// Posting interval in milliseconds (5 seconds)
-const unsigned long POST_INTERVAL_MS = 5000;
+// Posting interval in milliseconds (30 seconds)
+const unsigned long POST_INTERVAL_MS = 30000;
 
 // ─── SENSOR PIN CONFIGURATION ───────────────────────────────────
 
