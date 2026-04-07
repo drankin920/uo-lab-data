@@ -2,7 +2,7 @@
 #include "DEV_Config.h"
 #include "EPD_2in9_V2.h"
 #include "GUI_Paint.h"
-#include "imagedata.h"
+#include "ImageData.h"
 #include <stdlib.h>
 #include "max6675.h"
 
