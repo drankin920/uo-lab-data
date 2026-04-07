@@ -20,6 +20,29 @@ import {
 const ARCHIVE_FUNCTION_URL =
   "https://us-central1-uo-lab-pulse.cloudfunctions.net/fetchArchiveReadings";
 
+const TIMEZONE = "America/Denver";
+
+/**
+ * Format a Date as a Mountain Time string: "YYYY-MM-DD HH:MM:SS MST" (or MDT).
+ * Uses Intl.DateTimeFormat to get the correct offset for DST handling.
+ */
+function toMountainTimeString(date: Date): string {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: TIMEZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+    timeZoneName: "short",
+  }).formatToParts(date);
+
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+  return `${get("year")}-${get("month")}-${get("day")} ${get("hour")}:${get("minute")}:${get("second")} ${get("timeZoneName")}`;
+}
+
 interface ExportRow {
   timestamp: string;
   temperature: number;
@@ -96,7 +119,7 @@ export function useExportCSV(): UseExportCSVReturn {
 
           // Apply unit conversions to the raw archive data
           const rows: ExportRow[] = parsed.data.map((row) => ({
-            timestamp: row.timestamp,
+            timestamp: toMountainTimeString(new Date(row.timestamp)),
             temperature: convertTemperature(parseFloat(row.temperature), temperatureUnit),
             pressure: convertPressure(parseFloat(row.pressure), pressureUnit),
             unit_temp: temperatureUnit,
@@ -126,9 +149,9 @@ export function useExportCSV(): UseExportCSVReturn {
 
           const rows: ExportRow[] = snapshot.docs.map((doc) => {
             const data = doc.data();
-            const ts = (data.timestamp as Timestamp).toDate().toISOString();
+            const ts = (data.timestamp as Timestamp).toDate();
             return {
-              timestamp: ts,
+              timestamp: toMountainTimeString(ts),
               temperature: convertTemperature(data.temperature, temperatureUnit),
               pressure: convertPressure(data.pressure, pressureUnit),
               unit_temp: temperatureUnit,
@@ -169,8 +192,11 @@ function generateAndDownloadCSV(
     ],
   });
 
+  // Replace the header row's "timestamp" with "timestamp_MT" to indicate timezone
+  const csvWithTzHeader = csv.replace(/^timestamp,/, "timestamp_MT,");
+
   // Trigger browser download — prepend UTF-8 BOM so Excel reads special chars correctly
-  const blob = new Blob(["\uFEFF" + csv], {
+  const blob = new Blob(["\uFEFF" + csvWithTzHeader], {
     type: "text/csv;charset=utf-8;",
   });
   const blobUrl = URL.createObjectURL(blob);

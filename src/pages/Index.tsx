@@ -49,8 +49,9 @@ const TIME_RANGE_OPTIONS: { value: TimeRange; label: string }[] = [
 ];
 
 function formatTime(date: Date, range: TimeRange): string {
+  const tz = "America/Denver";
   if (range === "24h") {
-    return date.toLocaleTimeString("en-US", { hour12: false });
+    return date.toLocaleTimeString("en-US", { hour12: false, timeZone: tz });
   }
   if (range === "7d") {
     return date.toLocaleDateString("en-US", {
@@ -58,6 +59,7 @@ function formatTime(date: Date, range: TimeRange): string {
       day: "numeric",
       hour: "2-digit",
       hour12: false,
+      timeZone: tz,
     });
   }
   if (range === "custom") {
@@ -67,11 +69,13 @@ function formatTime(date: Date, range: TimeRange): string {
       hour: "2-digit",
       minute: "2-digit",
       hour12: false,
+      timeZone: tz,
     });
   }
   return date.toLocaleDateString("en-US", {
     month: "short",
     day: "numeric",
+    timeZone: tz,
   });
 }
 
