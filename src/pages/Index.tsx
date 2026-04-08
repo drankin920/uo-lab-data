@@ -39,7 +39,9 @@ import {
   type PressureUnit,
   type TemperatureUnit,
 } from "@/lib/units";
-import { format } from "date-fns";
+import { format as dfFormat } from "date-fns";
+import { utcToZonedTime, zonedTimeToUtc, format as tzFormat } from "date-fns-tz";
+const TZ = "America/Denver";
 
 const TIME_RANGE_OPTIONS: { value: TimeRange; label: string }[] = [
   { value: "24h", label: "24h" },
@@ -223,6 +225,19 @@ const Index = () => {
     }));
   }, [historicalReadings, hourlyReadings, timeRange, temperatureUnit]);
 
+  // Compute xDomain for 24h local-day view so charts show midnight->midnight even if no data
+  let xDomain: [number, number] | undefined;
+  let tickFormatter: ((v: number) => string) | undefined;
+  if (timeRange === "24h") {
+    const now = new Date();
+    const nowInTz = utcToZonedTime(now, TZ);
+    const dateStr = tzFormat(nowInTz, "yyyy-MM-dd", { timeZone: TZ });
+    const dayStartUtc = zonedTimeToUtc(`${dateStr}T00:00:00`, TZ);
+    const dayEndUtc = new Date(dayStartUtc.getTime() + 24 * 60 * 60 * 1000 - 1);
+    xDomain = [dayStartUtc.getTime(), dayEndUtc.getTime()];
+    tickFormatter = (v: number) => tzFormat(new Date(v), "HH:mm", { timeZone: TZ });
+  }
+
   // Compute previous reading for trend indicator (convert to selected units)
   const previousReading =
     historicalReadings.length >= 2
@@ -328,9 +343,9 @@ const Index = () => {
                             className="w-full justify-start text-left font-normal"
                           >
                             <CalendarIcon className="h-3.5 w-3.5 mr-2 shrink-0" />
-                            <span className="truncate">
+                              <span className="truncate">
                               {exportStartDate
-                                ? format(exportStartDate, "MMM d, yyyy")
+                                ? dfFormat(exportStartDate, "MMM d, yyyy")
                                 : "Date"}
                             </span>
                           </Button>
@@ -374,9 +389,9 @@ const Index = () => {
                             className="w-full justify-start text-left font-normal"
                           >
                             <CalendarIcon className="h-3.5 w-3.5 mr-2 shrink-0" />
-                            <span className="truncate">
+                              <span className="truncate">
                               {exportEndDate
-                                ? format(exportEndDate, "MMM d, yyyy")
+                                ? dfFormat(exportEndDate, "MMM d, yyyy")
                                 : "Date"}
                             </span>
                           </Button>
@@ -571,7 +586,7 @@ const Index = () => {
                           >
                             <CalendarIcon className="h-3.5 w-3.5 mr-1.5" />
                             {chartStartDate
-                              ? format(chartStartDate, "MMM d, yyyy")
+                              ? dfFormat(chartStartDate, "MMM d, yyyy")
                               : "Start date"}
                           </Button>
                         </PopoverTrigger>
@@ -613,7 +628,7 @@ const Index = () => {
                           >
                             <CalendarIcon className="h-3.5 w-3.5 mr-1.5" />
                             {chartEndDate
-                              ? format(chartEndDate, "MMM d, yyyy")
+                              ? dfFormat(chartEndDate, "MMM d, yyyy")
                               : "End date"}
                           </Button>
                         </PopoverTrigger>
@@ -654,8 +669,8 @@ const Index = () => {
                   </Button>
                   {customStart && customEnd && (
                     <span className="text-xs text-muted-foreground ml-auto self-center">
-                      Showing {format(customStart, "MMM d, yyyy HH:mm")} &ndash;{" "}
-                      {format(customEnd, "MMM d, yyyy HH:mm")}
+                      Showing {dfFormat(customStart, "MMM d, yyyy HH:mm")} &ndash;{" "}
+                      {dfFormat(customEnd, "MMM d, yyyy HH:mm")}
                     </span>
                   )}
                 </div>

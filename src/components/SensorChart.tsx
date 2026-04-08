@@ -26,6 +26,8 @@ interface SensorChartProps {
   unit: string;
   color: string;
   timeRange: TimeRange;
+  xDomain?: [number, number];
+  tickFormatter?: (value: number) => string;
   yDomain?: [number | "auto", number | "auto"];
   yMin?: string;
   yMax?: string;
@@ -140,17 +142,31 @@ export function SensorChart({
                 strokeDasharray="3 3"
                 stroke="hsl(var(--border))"
               />
-              <XAxis
-                dataKey="time"
-                tick={{
-                  fontSize: 11,
-                  fill: "hsl(var(--muted-foreground))",
-                }}
-                tickLine={false}
-                axisLine={false}
-                interval="preserveStartEnd"
-                minTickGap={60}
-              />
+              {xDomain ? (
+                <XAxis
+                  dataKey="timestamp"
+                  type="number"
+                  domain={xDomain}
+                  tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+                  tickLine={false}
+                  axisLine={false}
+                  interval="preserveStartEnd"
+                  minTickGap={60}
+                  tickFormatter={tickFormatter}
+                />
+              ) : (
+                <XAxis
+                  dataKey="time"
+                  tick={{
+                    fontSize: 11,
+                    fill: "hsl(var(--muted-foreground))",
+                  }}
+                  tickLine={false}
+                  axisLine={false}
+                  interval="preserveStartEnd"
+                  minTickGap={60}
+                />
+              )}
               <YAxis
                 domain={domain}
                 tick={{
@@ -162,7 +178,7 @@ export function SensorChart({
                 width={50}
                 allowDataOverflow
               />
-              <Tooltip
+               <Tooltip
                 contentStyle={{
                   backgroundColor: "hsl(var(--card))",
                   border: "1px solid hsl(var(--border))",
@@ -179,6 +195,7 @@ export function SensorChart({
                         : "Max";
                   return [`${value.toFixed(2)} ${unit}`, displayName];
                 }}
+                labelFormatter={(label) => (tickFormatter && typeof label === "number" ? tickFormatter(label) : String(label))}
               />
               <Area
                 type="monotone"
