@@ -1,7 +1,9 @@
 import { onRequest } from "firebase-functions/v2/https";
 import * as admin from "firebase-admin";
+import { utcToZonedTime, format } from "date-fns-tz";
 
 const bucket = admin.storage().bucket();
+const TZ = "America/Denver";
 
 /**
  * HTTPS Cloud Function that fetches raw-resolution CSV data from
@@ -46,21 +48,25 @@ export const fetchArchiveReadings = onRequest(
       return;
     }
 
-    // Enumerate all calendar days (UTC) that fall within the range
+    // Enumerate all calendar days (America/Denver local dates) that fall within the range
     const days: string[] = [];
-    const cursor = new Date(
-      Date.UTC(startDate.getUTCFullYear(), startDate.getUTCMonth(), startDate.getUTCDate())
-    );
-    const endDay = new Date(
-      Date.UTC(endDate.getUTCFullYear(), endDate.getUTCMonth(), endDate.getUTCDate())
-    );
 
-    while (cursor <= endDay) {
-      const y = cursor.getUTCFullYear().toString();
-      const m = String(cursor.getUTCMonth() + 1).padStart(2, "0");
-      const d = String(cursor.getUTCDate()).padStart(2, "0");
-      days.push(`readings/${y}/${m}/${y}-${m}-${d}.csv`);
-      cursor.setUTCDate(cursor.getUTCDate() + 1);
+    const startZoned = utcToZonedTime(startDate, TZ);
+    const endZoned = utcToZonedTime(endDate, TZ);
+
+    const localCursor = new Date(startZoned);
+    localCursor.setHours(0, 0, 0, 0);
+
+    const localEndDay = new Date(endZoned);
+    localEndDay.setHours(0, 0, 0, 0);
+
+    while (localCursor <= localEndDay) {
+      const dateStr = format(localCursor, "yyyy-MM-dd", { timeZone: TZ });
+      const y = dateStr.slice(0, 4);
+      const m = dateStr.slice(5, 7);
+      days.push(`readings/${y}/${m}/${dateStr}.csv`);
+      // optional fallback for legacy files named by UTC date can be added here
+      localCursor.setDate(localCursor.getDate() + 1);
     }
 
     // Cap at 365 days to prevent abuse

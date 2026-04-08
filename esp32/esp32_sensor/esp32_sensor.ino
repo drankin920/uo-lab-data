@@ -43,8 +43,8 @@
 
 // eduroam WPA2-Enterprise credentials
 const char* WIFI_SSID      = "eduroam";
-const char* EAP_IDENTITY   = "";    // <-- your university email
-const char* EAP_PASSWORD   = "";       // <-- enter your password here
+const char* EAP_IDENTITY   = "drankin@byu.edu";    // <-- your university email
+const char* EAP_PASSWORD   = "DYL01an!";       // <-- enter your password here
 
 // Raspberry Pi server URL (LAN address — ESP32 and Pi on same network)
 // Change this to your Pi's IP address after setting it up

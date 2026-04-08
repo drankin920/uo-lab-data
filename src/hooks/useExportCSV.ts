@@ -118,14 +118,18 @@ export function useExportCSV(): UseExportCSVReturn {
           }
 
           // Apply unit conversions to the raw archive data
-          const rows: ExportRow[] = parsed.data.map((row) => ({
-            timestamp: toMountainTimeString(new Date(row.timestamp)),
-            temperature: convertTemperature(parseFloat(row.temperature), temperatureUnit),
-            pressure: convertPressure(parseFloat(row.pressure), pressureUnit),
-            unit_temp: temperatureUnit,
-            unit_pressure: pressureUnit,
-            device_id: row.device_id || "esp32-lab-01",
-          }));
+          const rows: ExportRow[] = parsed.data.map((row) => {
+            // Prefer the machine-friendly ISO with offset if present
+            const tsRaw = (row.timestamp_MT_ISO ?? row.timestamp ?? row.timestamp_MT) as string;
+            return {
+              timestamp: toMountainTimeString(new Date(tsRaw)),
+              temperature: convertTemperature(parseFloat(row.temperature), temperatureUnit),
+              pressure: convertPressure(parseFloat(row.pressure), pressureUnit),
+              unit_temp: temperatureUnit,
+              unit_pressure: pressureUnit,
+              device_id: row.device_id || "esp32-lab-01",
+            };
+          });
 
           generateAndDownloadCSV(rows, startDate, endDate);
         } else {
