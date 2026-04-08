@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import {
   collection,
   query,
@@ -10,6 +10,9 @@ import {
   Timestamp,
 } from "firebase/firestore";
 import { db } from "@/lib/firebase";
+import { zonedTimeToUtc, utcToZonedTime, format } from "date-fns-tz";
+
+const TZ = "America/Denver";
 
 export interface RawReading {
   id: string;
@@ -179,7 +182,13 @@ export function useRealtimeReadings(): UseRealtimeReadingsReturn {
         setHourlyReadings(readings);
         setHistoricalReadings([]);
       } else {
-        // Query raw readings collection
+        // RAW mode: if user selected 24h, we will handle in a streaming way
+        if (timeRange === "24h") {
+          // handled elsewhere by initLocalDayRealtime flow; skip here
+          return;
+        }
+
+        // Query raw readings collection for non-24h ranges
         const q = query(
           collection(db, "readings"),
           where("timestamp", ">=", startTs),
@@ -216,16 +225,140 @@ export function useRealtimeReadings(): UseRealtimeReadingsReturn {
     fetchHistoricalData();
   }, [fetchHistoricalData]);
 
-  // Auto-refresh historical data periodically on 24h view (every 30 seconds)
+  // --- New: stream current local-day (America/Denver) without polling ---
+  const localDayCleanupRef = useRef<() => void | null>(null);
+
+  // Helper: compute the current local-day start/end in UTC
+  function getCurrentLocalDayWindow(): { start: Date; end: Date } {
+    const now = new Date();
+    const nowInTz = utcToZonedTime(now, TZ);
+    const dateStr = format(nowInTz, "yyyy-MM-dd", { timeZone: TZ });
+    const dayStartUtc = zonedTimeToUtc(`${dateStr}T00:00:00`, TZ);
+    const dayEndUtc = new Date(dayStartUtc.getTime() + 24 * 60 * 60 * 1000);
+    return { start: dayStartUtc, end: dayEndUtc };
+  }
+
+  // Initialize streaming for the current local-day
+  const initLocalDayRealtime = useCallback(async () => {
+    // cleanup previous if any
+    if (localDayCleanupRef.current) {
+      try {
+        localDayCleanupRef.current();
+      } catch (e) {
+        // ignore
+      }
+      localDayCleanupRef.current = null;
+    }
+
+    const { start, end } = getCurrentLocalDayWindow();
+    const startTs = Timestamp.fromDate(start);
+    const endTs = Timestamp.fromDate(end);
+
+    // Initial single fetch for today's local-day
+    const qInit = query(
+      collection(db, "readings"),
+      where("timestamp", ">=", startTs),
+      where("timestamp", "<", endTs),
+      orderBy("timestamp", "asc")
+    );
+    const snapshot = await getDocs(qInit);
+
+    const readings: RawReading[] = snapshot.docs.map((doc) => {
+      const data = doc.data();
+      return {
+        id: doc.id,
+        device_id: data.device_id || "esp32-lab-01",
+        temperature: data.temperature,
+        pressure: data.pressure,
+        unit_temp: data.unit_temp || "Celsius",
+        unit_pressure: data.unit_pressure || "mmHg",
+        timestamp: data.timestamp?.toDate() || new Date(),
+      };
+    });
+
+    setHistoricalReadings(readings);
+
+    // lastSeen is the timestamp of the last fetched doc or start
+    let lastSeen: Date = readings.length ? readings[readings.length - 1].timestamp : start;
+
+    // Listener for new docs (timestamp > lastSeen)
+    const qNew = query(
+      collection(db, "readings"),
+      where("timestamp", ">", Timestamp.fromDate(lastSeen)),
+      orderBy("timestamp", "asc")
+    );
+
+    const unsubscribeNew = onSnapshot(
+      qNew,
+      (snap) => {
+        snap.docChanges().forEach((change) => {
+          if (change.type === "added") {
+            const data = change.doc.data();
+            const newReading: RawReading = {
+              id: change.doc.id,
+              device_id: data.device_id || "esp32-lab-01",
+              temperature: data.temperature,
+              pressure: data.pressure,
+              unit_temp: data.unit_temp || "Celsius",
+              unit_pressure: data.unit_pressure || "mmHg",
+              timestamp: data.timestamp?.toDate() || new Date(),
+            };
+
+            setHistoricalReadings((prev) => {
+              const next = [...prev, newReading];
+              return next;
+            });
+
+            lastSeen = newReading.timestamp;
+          }
+        });
+      },
+      (err) => {
+        console.error("realtime new-doc listener error", err);
+      }
+    );
+
+    // Schedule rollover at next local midnight
+    const msUntil = end.getTime() - Date.now();
+    const rolloverTimer = setTimeout(() => {
+      try {
+        unsubscribeNew();
+      } catch (e) {
+        // ignore
+      }
+      // Re-init for next day
+      void initLocalDayRealtime();
+    }, Math.max(msUntil, 0));
+
+    // store cleanup
+    localDayCleanupRef.current = () => {
+      try {
+        unsubscribeNew();
+      } catch (e) {}
+      try {
+        clearTimeout(rolloverTimer);
+      } catch (e) {}
+    };
+  }, []);
+
+  // Effect: start/stop streaming when timeRange === '24h'
   useEffect(() => {
-    if (timeRange !== "24h") return;
-
-    const interval = setInterval(() => {
-      fetchHistoricalData();
-    }, 30_000);
-
-    return () => clearInterval(interval);
-  }, [timeRange, fetchHistoricalData]);
+    if (timeRange === "24h") {
+      void initLocalDayRealtime();
+      return () => {
+        if (localDayCleanupRef.current) {
+          localDayCleanupRef.current();
+          localDayCleanupRef.current = null;
+        }
+      };
+    } else {
+      // leave any existing streaming cleanup to other effects
+      if (localDayCleanupRef.current) {
+        localDayCleanupRef.current();
+        localDayCleanupRef.current = null;
+      }
+    }
+  }, [timeRange, initLocalDayRealtime]);
 
   return {
     currentReading,
