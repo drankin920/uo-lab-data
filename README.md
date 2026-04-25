@@ -284,3 +284,7 @@ Recommended Raspberry Pi setup (~$97 total):
 - Pi server validates POST payload fields before storing.
 - Firestore security rules allow public reads; writes are restricted.
 - **Do not commit passwords** to the repository. The `.ino` file contains an `EAP_PASSWORD` placeholder that must be changed.
+
+---
+
+_Updated last by Mike Hagberg_
